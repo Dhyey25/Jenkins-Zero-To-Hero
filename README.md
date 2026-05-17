@@ -1,136 +1,198 @@
-# Jenkins-Zero-To-Hero
+# End-to-End CI/CD Pipeline with Jenkins, SonarQube, Docker, and ArgoCD
 
-Are you looking forward to learn Jenkins right from Zero(installation) to Hero(Build end to end pipelines)? then you are at the right place. 
+A production-style CI/CD pipeline that automates the entire software delivery lifecycle — from code commit to Kubernetes deployment — using industry-standard DevOps tools.
 
-## Installation on EC2 Instance
+![Architecture](./screenshots/architecture.png)
 
-YouTube Video ->
-https://www.youtube.com/watch?v=zZfhAXfBvVA&list=RDCMUCnnQ3ybuyFdzvgv2Ky5jnAA&index=1
+---
 
+## Project Overview
 
-![Screenshot 2023-02-01 at 5 46 14 PM](https://user-images.githubusercontent.com/43399466/216040281-6c8b89c3-8c22-4620-ad1c-8edd78eb31ae.png)
+This project demonstrates a complete continuous integration and continuous deployment pipeline for a Java Spring Boot application. A developer pushes code to GitHub, which triggers Jenkins to build, test, analyze, containerize, and ultimately deploy the application to a Kubernetes cluster via GitOps.
 
-Install Jenkins, configure Docker as agent, set up cicd, deploy applications to k8s and much more.
+The pipeline follows the **GitOps** methodology: Jenkins handles CI (build, test, scan, push), while ArgoCD handles CD by watching a Git repository for manifest changes and automatically syncing the desired state to the Kubernetes cluster.
 
-## AWS EC2 Instance
+---
 
-- Go to AWS Console
-- Instances(running)
-- Launch instances
+## Architecture & Workflow
 
-<img width="994" alt="Screenshot 2023-02-01 at 12 37 45 PM" src="https://user-images.githubusercontent.com/43399466/215974891-196abfe9-ace0-407b-abd2-adcffe218e3f.png">
+**CI (Continuous Integration) — Jenkins**
 
-### Install Jenkins.
+1. **Source Code Checkout** — Jenkins pulls the latest code from GitHub via webhook trigger.
+2. **Build & Test** — Maven compiles the Java Spring Boot application and runs unit tests.
+3. **Static Code Analysis** — SonarQube scans the codebase for bugs, vulnerabilities, and code smells.
+4. **Containerization** — Docker builds the application image and pushes it to Docker Hub.
+5. **Manifest Update** — Jenkins updates the Kubernetes deployment manifest with the new image tag and pushes it to the GitOps repository.
 
-Pre-Requisites:
- - Java (JDK)
+**CD (Continuous Deployment) — ArgoCD**
 
-### Run the below commands to install Java and Jenkins
+6. **GitOps Sync** — ArgoCD detects the manifest change and automatically deploys the updated application to the Kubernetes cluster running on Minikube.
 
-Install Java
+---
 
+## Tech Stack
+
+| Layer | Tool | Purpose |
+|-------|------|---------|
+| CI Server | Jenkins | Pipeline orchestration |
+| Build Tool | Maven | Java compilation, testing, packaging |
+| Code Quality | SonarQube 10.4.1 | Static analysis, vulnerability detection |
+| Containerization | Docker | Image build and registry push |
+| Container Registry | Docker Hub | Image storage and distribution |
+| GitOps Controller | ArgoCD v3.1.11 | Kubernetes-native continuous deployment |
+| Orchestration | Kubernetes (Minikube) | Container orchestration |
+| Infrastructure | AWS EC2 | Hosting Jenkins and SonarQube |
+| SCM | GitHub | Source code and manifest management |
+
+---
+
+## Infrastructure Setup
+
+### AWS EC2 Instance
+
+- Jenkins and SonarQube run on an AWS EC2 instance.
+- Security groups configured to expose ports 8080 (Jenkins) and 9000 (SonarQube).
+
+### Kubernetes Cluster
+
+- Minikube running locally with the Docker driver.
+- ArgoCD installed via the ArgoCD Operator, managing deployments in the `default` namespace.
+
+---
+
+## Pipeline Stages in Detail
+
+### 1. Checkout
+Clones the application source code from the GitHub repository.
+
+### 2. Build and Test
+```bash
+mvn clean package
 ```
+Compiles the Spring Boot application and executes unit tests. Produces a deployable JAR artifact.
+
+### 3. Static Code Analysis (SonarQube)
+```bash
+mvn sonar:sonar -Dsonar.login=$SONAR_AUTH_TOKEN -Dsonar.host.url=$SONAR_URL
+```
+Runs SonarQube analysis against the codebase. The pipeline uses a secure token stored in Jenkins credentials to authenticate with the SonarQube server.
+
+### 4. Build and Push Docker Image
+```bash
+docker build -t dhyey25/ultimate-cicd:${BUILD_NUMBER} .
+docker push dhyey25/ultimate-cicd:${BUILD_NUMBER}
+```
+Builds a Docker image tagged with the Jenkins build number and pushes it to Docker Hub.
+
+### 5. Update Deployment Manifest
+```bash
+sed -i "s/replaceImageTag/${BUILD_NUMBER}/g" deployment.yml
+git push
+```
+Updates the Kubernetes deployment manifest with the new image tag and pushes the change to the GitOps repository. ArgoCD detects this change and triggers a deployment.
+
+---
+
+## Screenshots
+
+### Jenkins Pipeline — All Stages Passed
+![Jenkins Pipeline](./screenshots/jenkins-pipeline.jpeg)
+
+### ArgoCD — Application Synced and Healthy
+![ArgoCD](./screenshots/argocd.jpeg)
+
+---
+
+## Key Challenges Solved
+
+- **Java Version Compatibility** — SonarQube 10.4+ requires Java 17. Resolved by switching the Jenkins Docker agent from Java 11 to `maven:3.9.6-eclipse-temurin-17`.
+- **Git Safe Directory** — Docker agent running as root conflicted with Git's `safe.directory` security. Fixed by adding `git config --global --add safe.directory` to the pipeline.
+- **ArgoCD Service Type** — Changed ArgoCD server service from ClusterIP to NodePort via the ArgoCD custom resource for external access.
+- **GitOps Image Reference** — Ensured the Kubernetes deployment manifest referenced the correct Docker Hub repository to prevent `ImagePullBackOff` errors.
+
+---
+
+## Jenkins Credentials Configuration
+
+| Credential ID | Type | Purpose |
+|---------------|------|---------|
+| `sonarqube` | Secret Text | SonarQube authentication token |
+| `docker-cred` | Username/Password | Docker Hub registry credentials |
+| `github` | Secret Text | GitHub Personal Access Token for pushing manifest updates |
+
+---
+
+## How to Reproduce
+
+### Prerequisites
+- AWS EC2 instance (t2.medium or larger)
+- Docker installed on EC2
+- Minikube with Docker driver
+- GitHub account with a forked copy of the repository
+
+### Step 1 — Set Up Jenkins on EC2
+```bash
+# Install Java 17 and Jenkins
 sudo apt update
-sudo apt install openjdk-17-jre
+sudo apt install openjdk-17-jdk -y
+# Follow Jenkins installation docs for your OS
 ```
 
-Verify Java is Installed
-
-```
-java -version
-```
-
-Now, you can proceed with installing Jenkins
-
-```
-curl -fsSL https://pkg.jenkins.io/debian/jenkins.io-2023.key | sudo tee \
-  /usr/share/keyrings/jenkins-keyring.asc > /dev/null
-echo deb [signed-by=/usr/share/keyrings/jenkins-keyring.asc] \
-  https://pkg.jenkins.io/debian binary/ | sudo tee \
-  /etc/apt/sources.list.d/jenkins.list > /dev/null
-sudo apt-get update
-sudo apt-get install jenkins
+### Step 2 — Set Up SonarQube on EC2
+```bash
+adduser sonarqube
+wget https://binaries.sonarsource.com/Distribution/sonarqube/sonarqube-10.4.1.88267.zip
+unzip sonarqube-10.4.1.88267.zip -d /opt/
+chown -R sonarqube:sonarqube /opt/sonarqube-10.4.1.88267
+su - sonarqube -c "/opt/sonarqube-10.4.1.88267/bin/linux-x86-64/sonar.sh start"
 ```
 
-**Note: ** By default, Jenkins will not be accessible to the external world due to the inbound traffic restriction by AWS. Open port 8080 in the inbound traffic rules as show below.
-
-- EC2 > Instances > Click on <Instance-ID>
-- In the bottom tabs -> Click on Security
-- Security groups
-- Add inbound traffic rules as shown in the image (you can just allow TCP 8080 as well, in my case, I allowed `All traffic`).
-
-<img width="1187" alt="Screenshot 2023-02-01 at 12 42 01 PM" src="https://user-images.githubusercontent.com/43399466/215975712-2fc569cb-9d76-49b4-9345-d8b62187aa22.png">
-
-
-### Login to Jenkins using the below URL:
-
-http://<ec2-instance-public-ip-address>:8080    [You can get the ec2-instance-public-ip-address from your AWS EC2 console page]
-
-Note: If you are not interested in allowing `All Traffic` to your EC2 instance
-      1. Delete the inbound traffic rule for your instance
-      2. Edit the inbound traffic rule to only allow custom TCP port `8080`
-  
-After you login to Jenkins, 
-      - Run the command to copy the Jenkins Admin Password - `sudo cat /var/lib/jenkins/secrets/initialAdminPassword`
-      - Enter the Administrator password
-      
-<img width="1291" alt="Screenshot 2023-02-01 at 10 56 25 AM" src="https://user-images.githubusercontent.com/43399466/215959008-3ebca431-1f14-4d81-9f12-6bb232bfbee3.png">
-
-### Click on Install suggested plugins
-
-<img width="1291" alt="Screenshot 2023-02-01 at 10 58 40 AM" src="https://user-images.githubusercontent.com/43399466/215959294-047eadef-7e64-4795-bd3b-b1efb0375988.png">
-
-Wait for the Jenkins to Install suggested plugins
-
-<img width="1291" alt="Screenshot 2023-02-01 at 10 59 31 AM" src="https://user-images.githubusercontent.com/43399466/215959398-344b5721-28ec-47a5-8908-b698e435608d.png">
-
-Create First Admin User or Skip the step [If you want to use this Jenkins instance for future use-cases as well, better to create admin user]
-
-<img width="990" alt="Screenshot 2023-02-01 at 11 02 09 AM" src="https://user-images.githubusercontent.com/43399466/215959757-403246c8-e739-4103-9265-6bdab418013e.png">
-
-Jenkins Installation is Successful. You can now starting using the Jenkins 
-
-<img width="990" alt="Screenshot 2023-02-01 at 11 14 13 AM" src="https://user-images.githubusercontent.com/43399466/215961440-3f13f82b-61a2-4117-88bc-0da265a67fa7.png">
-
-## Install the Docker Pipeline plugin in Jenkins:
-
-   - Log in to Jenkins.
-   - Go to Manage Jenkins > Manage Plugins.
-   - In the Available tab, search for "Docker Pipeline".
-   - Select the plugin and click the Install button.
-   - Restart Jenkins after the plugin is installed.
-   
-<img width="1392" alt="Screenshot 2023-02-01 at 12 17 02 PM" src="https://user-images.githubusercontent.com/43399466/215973898-7c366525-15db-4876-bd71-49522ecb267d.png">
-
-Wait for the Jenkins to be restarted.
-
-
-## Docker Slave Configuration
-
-Run the below command to Install Docker
-
-```
-sudo apt update
-sudo apt install docker.io
-```
- 
-### Grant Jenkins user and Ubuntu user permission to docker deamon.
-
-```
-sudo su - 
-usermod -aG docker jenkins
-usermod -aG docker ubuntu
-systemctl restart docker
+### Step 3 — Set Up Minikube and ArgoCD
+```bash
+minikube start --driver=docker
+# Install ArgoCD operator and create an ArgoCD instance
+kubectl apply -f argocd-basic.yml
 ```
 
-Once you are done with the above steps, it is better to restart Jenkins.
+### Step 4 — Configure Jenkins Pipeline
+- Add credentials (SonarQube token, Docker Hub, GitHub PAT).
+- Create a pipeline job pointing to the forked repository's `Jenkinsfile`.
+- Run the pipeline.
 
+### Step 5 — Configure ArgoCD Application
+- Create an ArgoCD application pointing to the manifests directory in the GitOps repository.
+- Enable auto-sync for automatic deployments.
+
+---
+
+## Project Structure
 ```
-http://<ec2-instance-public-ip>:8080/restart
+├── java-maven-sonar-argocd-helm-k8s/
+│   ├── spring-boot-app/
+│   │   ├── src/                    # Application source code
+│   │   ├── pom.xml                 # Maven build configuration
+│   │   └── Dockerfile              # Container image definition
+│   └── spring-boot-app-manifests/
+│       └── deployment.yml          # Kubernetes deployment manifest
+├── Jenkinsfile                     # CI pipeline definition
+└── README.md
 ```
 
-The docker agent configuration is now successful.
+---
 
+## Future Improvements
 
+- Add **Helm charts** for templated Kubernetes deployments.
+- Implement **quality gates** in SonarQube to fail the pipeline on critical issues.
+- Add **Slack/email notifications** for build status.
+- Set up **HTTPS/TLS** for Jenkins and SonarQube.
+- Implement **RBAC** and namespace isolation in Kubernetes.
+- Add **integration and end-to-end tests** as pipeline stages.
 
+---
 
+## Author
+
+**Dhyey Solanki**
+
+Built as a hands-on DevOps project demonstrating end-to-end CI/CD pipeline design, infrastructure provisioning, and GitOps-based deployment.
